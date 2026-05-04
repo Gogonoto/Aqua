@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+<div id="page-ref">
+    <h2>Справочники</h2>
+    <div class="tabs">
+        <span class="tab active" data-tab="fishes">Виды рыб</span>
+        <span class="tab" data-tab="equipment">Оборудование</span>
+    </div>
+    <div class="tab-content active" id="tab-fishes">
+        <h3>Виды рыб</h3>
+        <table id="speciesTable"><thead><tr><th>Название</th><th>Мин. объём</th><th>Размер</th><th>Температура</th><th>Особые требования</th><th>Агрессивность</th><th></th></tr></thead><tbody></tbody></table>
+        <h4>Добавить / изменить вид</h4>
+        <form onsubmit="event.preventDefault(); addSpecies();">
+            <input type="text" id="spName" placeholder="Название" required>
+            <input type="number" id="spVolume" placeholder="Мин. объём (л)" value="10">
+            <input type="number" id="spSize" placeholder="Размер (см)" value="3">
+            <input type="number" id="spTmin" placeholder="T min" value="22">
+            <input type="number" id="spTmax" placeholder="T max" value="26">
+            <label>Агрессивный <input type="checkbox" id="spAggr"></label>
+            <select id="spLayer"><option value="середина">середина</option><option value="дно">дно</option><option value="поверхность">поверхность</option></select>
+            <input type="text" id="spRequirements" placeholder="Особые требования">
+            <button type="submit">Сохранить</button>
+        </form>
+        <hr>
+        <h3>Таблица совместимости</h3>
+        <p><small>✓ совместимы &nbsp; ✗ несовместимы &nbsp; ~ условно (возможны нюансы)</small></p>
+        <div id="compatMatrixContainer"></div>
+        <button onclick="showCompatMatrix()">Обновить матрицу</button>
+    </div>
+    <div class="tab-content" id="tab-equipment">
+        <h3>Оборудование</h3>
+        <table id="equipTable"><thead><tr><th>Название</th><th>Тип</th><th>Мин. объём</th><th>Макс. объём</th><th>Хар-ка</th><th></th></tr></thead><tbody></tbody></table>
+        <h4>Добавить устройство</h4>
+        <form onsubmit="event.preventDefault(); addEquipment();">
+            <input type="text" id="eqName" placeholder="Название" required>
+            <select id="eqType">
+                <option value="filter">Фильтр</option>
+                <option value="heater">Нагреватель</option>
+                <option value="light">Свет</option>
+                <option value="pump">Помпа</option>
+                <option value="feeder">Автокормушка</option>
+                <option value="co2">CO₂ система</option>
+                <option value="thermometer">Термометр</option>
+                <option value="uv">УФ-стерилизатор</option>
+            </select>
+            <input type="number" id="eqMinVol" placeholder="Мин. объём" value="10">
+            <input type="number" id="eqMaxVol" placeholder="Макс. объём" value="100">
+            <input type="text" id="eqChar" placeholder="Характеристика" value="300 л/ч">
+            <button type="submit">Добавить</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/reference.js') }}"></script>
+<script>
+document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', function() {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        this.classList.add('active');
+        document.getElementById('tab-' + this.dataset.tab).classList.add('active');
+    });
+});
+document.addEventListener('DOMContentLoaded', function() {
+    AppState.load().then(function() {
+        renderAllRef();
+        showCompatMatrix();
+        document.querySelector('nav a[data-page="ref"]').classList.add('active');
+    });
+});
+</script>
+{% endblock %}

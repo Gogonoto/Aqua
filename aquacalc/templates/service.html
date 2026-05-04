@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+{% block content %}
+<div id="page-service">
+    <h2>Запуск аквариума</h2>
+    <div class="row">
+        <div class="field"><label>Дата запуска</label><input type="date" id="startDate" onchange="updateService()"></div>
+        <div class="field"><label>Начальный аммиак (мг/л)</label><input type="number" id="doseNH3" value="2.0" step="0.1" onchange="updateService()"></div>
+    </div>
+    <canvas id="cycleCanvas" width="600" height="280" style="max-width:100%;"></canvas>
+    <p id="cycleInfo"></p>
+    <div id="instructionTimeline"></div>
+    <hr>
+    <h2>График обслуживания</h2>
+    <div class="row">
+        <button onclick="changeMonth(-1)">← Предыдущий месяц</button>
+        <span id="calendarMonthYear"></span>
+        <button onclick="changeMonth(1)">Следующий месяц →</button>
+    </div>
+    <div id="calendarContainer" class="calendar"></div>
+    <div style="margin-top:5px;">
+        <p>Легенда:
+            <span class="marker W">W</span> подмена воды
+            <span class="marker F">F</span> чистка фильтра
+            <span class="marker T">T</span> тест воды
+            <span class="marker C">C</span> чистка стёкол
+            <span class="marker P">P</span> обрезка растений
+        </p>
+    </div>
+    <h4>Выполнение плана за месяц: <span id="monthlyProgress">0%</span></h4>
+    <h3>Журнал выполненных работ</h3>
+    <div id="logEntries"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var currentServiceYear, currentServiceMonth, currentMonthEvents = {};
+
+function updateService() {
+    AppState.set('startDate', document.getElementById('startDate').value);
+    AppState.set('doseNH3', parseFloat(document.getElementById('doseNH3').value) || 2.0);
+    AppState.scheduleSync();
+    drawCycle();
+    renderCalendar();
+    renderLog();
+    updateMonthlyProgress();
+}
+
+function drawCycle() {
+    var canvas = document.getElementById('cycleCanvas');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    var dose = parseFloat(document.getElementById('doseNH3').value) || 2;
+    var days = 30;
+    var nh3 = [], no2 = [], no3 = [];
+    for (var d=0; d<=days; d++) {
+        var n3 = dose * Math.exp(-0.15*d);
+        var n2 = (d<7) ? 0.2*dose*(d/7) : dose*0.7*Math.exp(-0.15*(d-7));
+        var nN = dose * (1 - Math.exp(-0.1*d));
+        nh3.push(n3); no2.push(Math.max(0,n2)); no3.push(Math.max(0,nN));
+    }
+    var maxVal = dose*1.2;
+    var sx = canvas.width/days, sy = canvas.height/maxVal;
+    function line(pts, color) {
+        ctx.beginPath();
+        ctx.strokeStyle=color; ctx.lineWidth=2;
+        pts.forEach((v,i)=>{ var x=i*sx, y=canvas.height-v*sy; i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+        ctx.stroke();
+    }
+    line(nh3,'red'); line(no2,'orange'); line(no3,'green');
+    ctx.font='14px Arial'; ctx.fillStyle='red'; ctx.fillText('NH₃',20,20);
+    ctx.fillStyle='orange'; ctx.fillText('NO₂',20,40);
+    ctx.fillStyle='green'; ctx.fillText('NO₃',20,60);
+    var matureDay = days;
+    for (var i=7; i<no2.length; i++) {
+        if (no2[i] < 0.1 && no2[i-1] >= 0.1) {
+            matureDay = i;
+            break;
+        }
+    }
+    document.getElementById('cycleInfo').textContent = `Примерный срок созревания: ${matureDay} дней.`;
+    generateInstructionTimeline(matureDay);
+}
+function generateInstructionTimeline(matureDay) {
+    var startDate = document.getElementById('startDate').value;
+    if (!startDate) return;
+    var s = new Date(startDate+'T00:00:00');
+    var fmt = function(add) {
+        var d = new Date(s.getTime() + add*86400000);
+        return d.toLocaleDateString('ru-RU');
+    };
+    var dose = document.getElementById('doseNH3').value;
+    document.getElementById('instructionTimeline').innerHTML = `
+        <div class="timeline">
+            <div class="tl-item"><span class="tl-date">День 1 (${fmt(0)})</span> Наполните аквариум водой, добавьте кондиционер. Включите оборудование, внесите аммиак ${dose} мг/л.</div>
+            <div class="tl-item"><span class="tl-date">День 2–3</span> Проверьте температуру (24–26°C). Измерьте аммиак.</div>
+            <div class="tl-item"><span class="tl-date">День 4–7</span> Начинайте тесты на нитриты.</div>
+            <div class="tl-item"><span class="tl-date">День 10–14</span> Пик нитритов. При зашкаливании подмените 10-15% воды.</div>
+            <div class="tl-item"><span class="tl-date">День ~${matureDay} (${fmt(matureDay)})</span> Конец цикла. Подмените 30% воды, можно запускать первых рыб.</div>
+            <div class="tl-item"><span class="tl-date">День ${matureDay+7} (${fmt(matureDay+7)})</span> Добавьте вторую партию рыб.</div>
+            <div class="tl-item"><span class="tl-date">День ${matureDay+14} (${fmt(matureDay+14)})</span> Аквариум стабилизирован.</div>
+        </div>`;
+}
+
+function renderCalendar() {
+    var container = document.getElementById('calendarContainer');
+    if (!container) return;
+    var startDateStr = document.getElementById('startDate').value;
+    if (!startDateStr) return;
+    var startDate = new Date(startDateStr + 'T00:00:00');
+    var year = currentServiceYear;
+    var month = currentServiceMonth;
+    if (isNaN(year) || isNaN(month)) {
+        var now = new Date();
+        year = now.getFullYear();
+        month = now.getMonth();
+        currentServiceYear = year;
+        currentServiceMonth = month;
+    }
+    document.getElementById('calendarMonthYear').textContent = `${(month+1).toString().padStart(2,'0')}.${year}`;
+    var daysInMonth = new Date(year, month+1, 0).getDate();
+    var firstDay = new Date(year, month, 1).getDay();
+
+    function weekOfMonth(date) {
+        var firstDayOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+        return Math.ceil((date.getDate() + firstDayOfMonth.getDay()) / 7);
+    }
+
+    currentMonthEvents = {};
+    var currentDate = new Date(startDate);
+    var endDate = new Date(startDate.getTime() + 200*7*86400000);
+    while (currentDate <= endDate) {
+        if (currentDate.getFullYear() === year && currentDate.getMonth() === month) {
+            var day = currentDate.getDate();
+            var dayEvents = [];
+            if (currentDate.getDay() === 0) dayEvents.push({code:'W', name:'Подмена воды'});
+            if (Math.floor((currentDate - startDate) / (7*86400000)) % 2 === 1 && currentDate.getDay() === 4) dayEvents.push({code:'F', name:'Чистка фильтра'});
+            if (currentDate.getDay() === 1) dayEvents.push({code:'T', name:'Тест воды'});
+            if (currentDate.getDay() === 5) dayEvents.push({code:'C', name:'Чистка стёкол'});
+            if (currentDate.getDay() === 3 && weekOfMonth(currentDate) === 2) dayEvents.push({code:'P', name:'Обрезка растений'});
+            if (dayEvents.length > 0) currentMonthEvents[day] = dayEvents;
+        }
+        currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    var dayNames = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+    var html = '';
+    for (var i=0; i<7; i++) html += `<div class="cal-day" style="font-weight:bold; border:none;">${dayNames[i]}</div>`;
+    for (var i=0; i<firstDay; i++) html += '<div class="cal-day"></div>';
+    for (var d=1; d<=daysInMonth; d++) {
+        var ev = currentMonthEvents[d] || [];
+        var markers = '';
+        ev.forEach(e => markers += `<span class="marker ${e.code}">${e.code}</span>`);
+        var dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        var doneTasks = maintenanceLog.filter(entry => entry.date === dateStr).length;
+        var classDone = (doneTasks > 0 && doneTasks >= ev.length) ? 'done' : '';
+        html += `<div class="cal-day ${classDone}" data-day="${d}" onclick="openDayTasks(${d})">
+            <span class="day-num">${d}</span><div class="markers">${markers}</div>
+        </div>`;
+    }
+    container.innerHTML = html;
+    AppState.set('calendarYear', year);
+    AppState.set('calendarMonth', month);
+    AppState.scheduleSync();
+}
+
+function openDayTasks(day) {
+    var tasks = currentMonthEvents[day];
+    if (!tasks || tasks.length === 0) return;
+    var dateStr = `${currentServiceYear}-${String(currentServiceMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    var message = 'Задачи на ' + new Date(dateStr).toLocaleDateString('ru-RU') + ':\n';
+    tasks.forEach((t, i) => message += `${i+1}. ${t.name}\n`);
+    var taskNames = tasks.map(t => t.name);
+    if (confirm(message + '\nОтметить все как выполненные?')) {
+        taskNames.forEach(taskName => addLogEntry(dateStr, taskName));
+        renderCalendar();
+        renderLog();
+        updateMonthlyProgress();
+    }
+}
+
+function updateMonthlyProgress() {
+    var year = currentServiceYear;
+    var month = currentServiceMonth;
+    var totalTasks = 0, completedTasks = 0;
+    var startDateStr = document.getElementById('startDate').value;
+    if (!startDateStr) return;
+    var startDate = new Date(startDateStr + 'T00:00:00');
+    function weekOfMonth(date) {
+        var firstDayOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+        return Math.ceil((date.getDate() + firstDayOfMonth.getDay()) / 7);
+    }
+    for (var d=1; d<=new Date(year, month+1, 0).getDate(); d++) {
+        var dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        var date = new Date(dateStr + 'T00:00:00');
+        var expected = 0;
+        if (date.getDay() === 0) expected++;
+        if (Math.floor((date - startDate) / (7*86400000)) % 2 === 1 && date.getDay() === 4) expected++;
+        if (date.getDay() === 1) expected++;
+        if (date.getDay() === 5) expected++;
+        if (date.getDay() === 3 && weekOfMonth(date) === 2) expected++;
+        totalTasks += expected;
+        var done = maintenanceLog.filter(e => e.date === dateStr).length;
+        completedTasks += Math.min(done, expected);
+    }
+    var percent = totalTasks > 0 ? Math.round(completedTasks / totalTasks * 100) : 0;
+    document.getElementById('monthlyProgress').textContent = percent + '%';
+}
+
+function changeMonth(delta) {
+    currentServiceMonth += delta;
+    if (currentServiceMonth < 0) { currentServiceMonth = 11; currentServiceYear--; }
+    if (currentServiceMonth > 11) { currentServiceMonth = 0; currentServiceYear++; }
+    renderCalendar();
+    updateMonthlyProgress();
+}
+
+function renderLog() {
+    var logDiv = document.getElementById('logEntries');
+    if (!logDiv) return;
+    logDiv.innerHTML = maintenanceLog.length ? maintenanceLog.map(e => `<div>${e.date} — ${e.task}</div>`).join('') : 'Нет записей';
+}
+function addLogEntry(date, task) {
+    if (!maintenanceLog.some(e => e.date===date && e.task===task)) {
+        maintenanceLog.push({date, task});
+        markDirty();
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    AppState.load().then(function() {
+        var savedDate = AppState.get('startDate');
+        document.getElementById('startDate').value = savedDate || new Date().toISOString().split('T')[0];
+        var savedDose = AppState.get('doseNH3');
+        document.getElementById('doseNH3').value = savedDose || 2.0;
+        var now = new Date();
+        currentServiceYear = AppState.get('calendarYear') || now.getFullYear();
+        currentServiceMonth = AppState.get('calendarMonth') || now.getMonth();
+        updateService();
+        document.querySelector('nav a[data-page="service"]').classList.add('active');
+    });
+});
+</script>
+{% endblock %}

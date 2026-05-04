@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+{% block content %}
+<div id="page-aqua">
+    <h2>Параметры</h2>
+    <div class="row">
+        <div class="field">
+            <label>Режим ввода</label>
+            <select id="calcMode" onchange="switchMode()">
+                <option value="dimensions">По размерам</option>
+                <option value="volume">По литражу</option>
+                <option value="byfish">Под рыб</option>
+            </select>
+        </div>
+    </div>
+    <div id="mode-dimensions" class="mode-panel">
+        <div class="row">
+            <div class="field"><label>Длина (см)</label><input type="number" id="L" value="60" step="0.1" oninput="autoCalc()"></div>
+            <div class="field"><label>Ширина (см)</label><input type="number" id="W" value="30" step="0.1" oninput="autoCalc()"></div>
+            <div class="field"><label>Высота (см)</label><input type="number" id="H" value="35" step="0.1" oninput="autoCalc()"></div>
+        </div>
+    </div>
+    <div id="mode-volume" class="mode-panel" style="display:none;">
+        <div class="field"><label>Объём (л)</label><input type="number" id="volInput" value="63" step="0.1" oninput="autoCalc()"></div>
+    </div>
+    <div id="mode-byfish" class="mode-panel" style="display:none;">
+        <p>Объём рассчитывается автоматически по выбранным рыбам.</p>
+    </div>
+    <div class="row">
+        <div class="field"><label>Грунт (см)</label><input type="number" id="subDepth" value="5" step="0.5" oninput="autoCalc()"></div>
+        <div class="field"><label>Декорации (%)</label><input type="number" id="decorPct" value="10" min="0" max="50" oninput="autoCalc()"></div>
+        <div class="field">
+            <label>Растительность</label>
+            <select id="plantLevel" onchange="autoCalc()">
+                <option value="none">Нет растений</option>
+                <option value="low">Мало теневыносливых</option>
+                <option value="medium" selected>Умеренный травник</option>
+                <option value="high">Густой сад с CO₂</option>
+            </select>
+        </div>
+        <div class="field"><label>Тип стекла</label><select id="glassType" onchange="autoCalc()"><option value="regular">Обычное</option><option value="tempered">Закалённое</option></select></div>
+        <div class="field"><label>Крышка</label><input type="checkbox" id="hasLid" checked onchange="autoCalc()"></div>
+    </div>
+    <button onclick="resetAll()" style="margin-top:10px;">Сбросить всё</button>
+    <hr>
+    <h3>Рассчитанные параметры</h3>
+    <div class="result-grid" id="aquaResults"></div>
+    <div class="progress-bar"><div class="progress-fill" id="bioProgress"></div></div>
+    <p id="bioInfo"></p>
+    <hr>
+    <h3>Рыбы в аквариуме</h3>
+    <table id="stockTable"><thead><tr><th>Вид</th><th>Кол-во</th><th>Особые требования</th><th></th></tr></thead><tbody></tbody></table>
+    <div class="row">
+        <div><input type="text" id="fishSearch" placeholder="Поиск рыбы" oninput="filterFishSelect()" style="width:140px;"></div>
+        <select id="fishSelect"></select>
+        <input type="number" id="fishQty" value="1" min="1" style="width:60px;">
+        <button onclick="addFish()">Добавить</button>
+    </div>
+    <p id="compatWarnings"></p>
+    <p id="stockInfo"></p>
+    <hr>
+    <h3>Подходящее оборудование (из справочника)</h3>
+    <table id="equipRecommendTable"><thead><tr><th>Категория</th><th>Модели</th></tr></thead><tbody></tbody></table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Функции аквариума (глобально после загрузки состояния)
+function switchMode() {
+    currentMode = document.getElementById('calcMode').value;
+    document.getElementById('mode-dimensions').style.display = currentMode==='dimensions'?'block':'none';
+    document.getElementById('mode-volume').style.display = currentMode==='volume'?'block':'none';
+    document.getElementById('mode-byfish').style.display = currentMode==='byfish'?'block':'none';
+    markDirty();
+    autoCalc();
+}
+function getAquariumVolume() {
+    if (currentMode === 'volume') return parseFloat(document.getElementById('volInput').value) || 0;
+    else {
+        var L = parseFloat(document.getElementById('L').value) || 0;
+        var W = parseFloat(document.getElementById('W').value) || 0;
+        var H = parseFloat(document.getElementById('H').value) || 0;
+        return (L * W * H) / 1000;
+    }
+}
+function calcRequiredVolume() {
+    if (stock.length === 0) return 20;
+    var maxMinVol = Math.max(...stock.map(item => fishSpecies.find(s=>s.id===item.speciesId)?.minVolume||0));
+    return Math.ceil(maxMinVol * 1.2);
+}
+function autoCalc() {
+    var volume;
+    if (currentMode === 'byfish') {
+        volume = calcRequiredVolume();
+        var edge = Math.pow(volume * 1000, 1/3);
+        document.getElementById('L').value = Math.round(edge * 2 / Math.sqrt(3)) || 60;
+        document.getElementById('W').value = Math.round(edge / Math.sqrt(3)) || 30;
+        document.getElementById('H').value = document.getElementById('W').value;
+    } else {
+        volume = getAquariumVolume();
+    }
+
+    var L = parseFloat(document.getElementById('L').value) || 0;
+    var W = parseFloat(document.getElementById('W').value) || 0;
+    var H = parseFloat(document.getElementById('H').value) || 0;
+    var subDepth = parseFloat(document.getElementById('subDepth').value)||0;
+    var decorPct = parseFloat(document.getElementById('decorPct').value)||0;
+    var plantLevel = document.getElementById('plantLevel').value;
+    var hasLid = document.getElementById('hasLid').checked;
+    var glassType = document.getElementById('glassType').value;
+
+    var substrateVol = (L && W) ? (L * W * subDepth) / 1000 : 0;
+    var decorVol = volume * decorPct / 100;
+    var usableVol = Math.max(0.1, volume - substrateVol - decorVol);
+    var bottomArea = (L && W) ? (L * W) / 100 : 0;
+    var waterMass = usableVol;
+    function glassThickness(h, type) {
+        if (type==='tempered') return h<=30?4: h<=40?5: h<=50?6:8;
+        else return h<=30?5: h<=40?6: h<=50?8:10;
+    }
+    var thickness = (L&&W&&H) ? glassThickness(H, glassType) : 0;
+    var glassMass = 0;
+    if (L&&W&&H) {
+        var front = L*H, side = W*H, bottom = L*W;
+        var area = bottom + 2*front + 2*side;
+        if (hasLid) area += bottom;
+        glassMass = area * thickness * 0.1 * 2.5 / 1000;
+    }
+    var lumenPerL;
+    switch(plantLevel) {
+        case 'none': lumenPerL = 15; break;
+        case 'low': lumenPerL = 25; break;
+        case 'medium': lumenPerL = 35; break;
+        case 'high': lumenPerL = 50; break;
+        default: lumenPerL = 30;
+    }
+    var totalLumens = Math.round(usableVol * lumenPerL);
+    var filterLow = Math.round(usableVol * 4);
+    var filterHigh = Math.round(usableVol * 6);
+    var heaterWatt = Math.round(usableVol * 1.2);
+
+    document.getElementById('aquaResults').innerHTML = `
+        <div class="result-item"><strong>Полный объём:</strong> ${volume.toFixed(1)} л</div>
+        <div class="result-item"><strong>Полезный объём:</strong> ${usableVol.toFixed(1)} л</div>
+        <div class="result-item"><strong>Масса воды:</strong> ${waterMass.toFixed(1)} кг</div>
+        <div class="result-item"><strong>Площадь дна:</strong> ${bottomArea.toFixed(1)} дм²</div>
+        <div class="result-item"><strong>Толщина стекла:</strong> ${thickness || '—'} мм</div>
+        <div class="result-item"><strong>Масса стекла:</strong> ${glassMass.toFixed(1)} кг</div>
+        <div class="result-item"><strong>Объём грунта:</strong> ${substrateVol.toFixed(1)} л</div>
+        <div class="result-item"><strong>Освещённость:</strong> ${totalLumens} лм (${lumenPerL} лм/л)</div>
+        <div class="result-item"><strong>Фильтр:</strong> ${filterLow}–${filterHigh} л/ч</div>
+        <div class="result-item"><strong>Нагреватель:</strong> ~${heaterWatt} Вт</div>
+    `;
+
+    var categoryNames = {
+        'filter': 'Фильтры', 'heater': 'Нагреватели', 'light': 'Освещение',
+        'pump': 'Помпы', 'feeder': 'Автокормушки', 'co2': 'CO₂ системы',
+        'thermometer': 'Термометры', 'uv': 'УФ-стерилизаторы'
+    };
+    var suitable = {};
+    equipment.forEach(eq => {
+        if (eq.minVolume <= usableVol && usableVol <= eq.maxVolume) {
+            if (!suitable[eq.type]) suitable[eq.type] = [];
+            suitable[eq.type].push(eq.name);
+        }
+    });
+    var eqHtml = '';
+    for (var type in suitable) {
+        eqHtml += `<tr><td><b>${categoryNames[type]||type}</b></td><td>${suitable[type].join(', ')}</td></tr>`;
+    }
+    var tbody = document.querySelector('#equipRecommendTable tbody');
+    if (tbody) {
+        tbody.innerHTML = eqHtml || '<tr><td colspan="2">Нет подходящего оборудования</td></tr>';
+    }
+
+    var totalLength = stock.reduce((sum, item) => sum + (fishSpecies.find(s=>s.id===item.speciesId)?.size||0)*item.quantity, 0);
+    var loadPercent = (totalLength / usableVol) * 100;
+    var progressFill = document.getElementById('bioProgress');
+    if (progressFill) {
+        progressFill.style.width = Math.min(loadPercent, 100) + '%';
+        progressFill.classList.toggle('overload', loadPercent > 100);
+    }
+    var bioInfo = document.getElementById('bioInfo');
+    if (bioInfo) {
+        bioInfo.textContent = `Бионагрузка: ${totalLength} см рыб на ${usableVol.toFixed(1)} л (${Math.round(loadPercent)}% от оптимальной)`;
+    }
+}
+
+function populateFishSelect(filter) {
+    filter = filter || '';
+    var filtered = fishSpecies.filter(s => s.name.toLowerCase().includes(filter.toLowerCase()));
+    var select = document.getElementById('fishSelect');
+    if (select) select.innerHTML = filtered.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+}
+function filterFishSelect() { populateFishSelect(document.getElementById('fishSearch').value); }
+function renderStockTable() {
+    var tbody = document.querySelector('#stockTable tbody');
+    if (!tbody) return;
+    tbody.innerHTML = stock.map(item => {
+        var sp = fishSpecies.find(s => s.id === item.speciesId);
+        return `<tr><td>${sp?sp.name:'?'}</td><td>${item.quantity}</td><td>${sp&&sp.requirements?sp.requirements:''}</td><td><button onclick="removeFish(${item.speciesId})">Удалить</button></td></tr>`;
+    }).join('');
+    var totalCm = stock.reduce((sum, item) => sum + (fishSpecies.find(s=>s.id===item.speciesId)?.size||0)*item.quantity, 0);
+    var infoEl = document.getElementById('stockInfo');
+    if (infoEl) infoEl.textContent = `Суммарная длина рыб: ${totalCm} см. Рекомендуемый объём: ${totalCm} л.`;
+    updateCompatibilityWarnings();
+}
+function updateCompatibilityWarnings() {
+    var conflicts = [];
+    for (var i=0; i<stock.length; i++) {
+        for (var j=i+1; j<stock.length; j++) {
+            var idA = stock[i].speciesId, idB = stock[j].speciesId;
+            var comp = areCompatible(idA, idB);
+            if (comp === '0') {
+                var nameA = fishSpecies.find(s=>s.id===idA)?.name;
+                var nameB = fishSpecies.find(s=>s.id===idB)?.name;
+                conflicts.push(`${nameA} и ${nameB} несовместимы`);
+            } else if (comp === '~') {
+                var nameA = fishSpecies.find(s=>s.id===idA)?.name;
+                var nameB = fishSpecies.find(s=>s.id===idB)?.name;
+                conflicts.push(`${nameA} и ${nameB} могут сосуществовать только при определённых условиях`);
+            }
+        }
+    }
+    var warnDiv = document.getElementById('compatWarnings');
+    if (warnDiv) warnDiv.innerHTML = conflicts.length ? '<span class="warning">⚠️ ' + conflicts.join('<br>') + '</span>' : '';
+}
+function addFish() {
+    var select = document.getElementById('fishSelect');
+    if (!select || select.options.length === 0) return;
+    var speciesId = parseInt(select.value);
+    var qty = parseInt(document.getElementById('fishQty').value) || 1;
+    var existing = stock.find(item => item.speciesId === speciesId);
+    if (existing) existing.quantity += qty;
+    else stock.push({ speciesId, quantity: qty });
+    renderStockTable();
+    autoCalc();
+    markDirty();
+}
+function removeFish(speciesId) {
+    stock = stock.filter(item => item.speciesId !== speciesId);
+    renderStockTable();
+    autoCalc();
+    markDirty();
+}
+function resetAll() {
+    if (confirm('Сбросить все данные аквариума?')) {
+        stock = [];
+        maintenanceLog = [];
+        AppState.set('stock', []);
+        AppState.set('maintenanceLog', []);
+        AppState.set('settings', {});
+        markDirty();
+        location.reload();
+    }
+}
+
+// Инициализация после загрузки состояния
+document.addEventListener('DOMContentLoaded', function() {
+    AppState.load().then(function() {
+        var settings = AppState.get('settings');
+        if (settings) {
+            document.getElementById('calcMode').value = settings.mode || 'dimensions';
+            document.getElementById('L').value = settings.length || 60;
+            document.getElementById('W').value = settings.width || 30;
+            document.getElementById('H').value = settings.height || 35;
+            document.getElementById('volInput').value = settings.volume || 63;
+            document.getElementById('subDepth').value = settings.substrate_depth || 5;
+            document.getElementById('decorPct').value = settings.decor_percent || 10;
+            document.getElementById('plantLevel').value = settings.plant_level || 'medium';
+            document.getElementById('glassType').value = settings.glass_type || 'regular';
+            document.getElementById('hasLid').checked = settings.has_lid !== undefined ? settings.has_lid : true;
+        }
+        switchMode();
+        renderStockTable();
+        populateFishSelect();
+        autoCalc();
+        document.querySelector('nav a[data-page="aqua"]').classList.add('active');
+    });
+});
+</script>
+{% endblock %}

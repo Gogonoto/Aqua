@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>АкваКалькулятор (итоговый прототип)</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: Arial, sans-serif; background: #fff; color: #000; max-width: 960px; margin: 0 auto; padding: 20px; padding-bottom: 80px; }
+        h1, h2, h3 { margin-bottom: 10px; }
+        hr { border: 0; border-top: 2px solid #aaa; margin: 20px 0; }
+        nav { margin-bottom: 25px; border-bottom: 2px solid #000; display: flex; gap: 0; }
+        nav a { text-decoration: none; color: #00c; padding: 8px 18px; border: 1px solid #000; border-bottom: none; background: #f0f0f0; font-size: 15px; }
+        nav a.active { background: #fff; font-weight: bold; border-bottom: 2px solid #fff; margin-bottom: -2px; }
+        .page { display: none; }
+        .page.active { display: block; }
+        table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+        th, td { border: 1px solid #000; padding: 8px 10px; text-align: left; }
+        th { background: #eee; }
+        input, select, button { padding: 6px 10px; margin: 3px 2px; border: 1px solid #000; background: #fff; font-size: 14px; }
+        button { cursor: pointer; background: #e8e8e8; }
+        button:hover { background: #ccc; }
+        .warning { color: red; font-weight: bold; margin-left: 8px; }
+        .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
+        .field { margin-bottom: 8px; }
+        .field label { display: block; font-weight: bold; margin-bottom: 2px; }
+        .result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 15px 0; }
+        .result-item { border: 1px solid #ccc; padding: 8px; }
+        .timeline { position: relative; padding-left: 30px; margin-bottom: 20px; }
+        .timeline::before { content: ''; position: absolute; left: 10px; top: 0; bottom: 0; width: 4px; background: #000; }
+        .tl-item { position: relative; margin-bottom: 16px; }
+        .tl-item::before { content: ''; position: absolute; left: -22px; top: 6px; width: 12px; height: 12px; background: #000; border-radius: 50%; }
+        .tl-date { font-weight: bold; display: block; }
+        .compat-matrix td { text-align: center; cursor: pointer; min-width: 36px; }
+        .compat-yes { background: #c8e6c9; }   /* зелёный */
+        .compat-no { background: #ffcdd2; }    /* красный */
+        .compat-maybe { background: #fff9c4; } /* жёлтый для ~ */
+        .highlight { outline: 3px solid #00c; outline-offset: -2px; }
+        .calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-top: 10px; }
+        .cal-day { border: 1px solid #aaa; padding: 4px; min-height: 50px; position: relative; text-align: right; }
+        .cal-day .markers { position: absolute; left: 2px; top: 2px; font-size: 12px; line-height: 1.2; }
+        .cal-day .day-num { font-weight: bold; }
+        .marker { display: inline-block; width: 16px; height: 16px; border-radius: 50%; text-align: center; line-height: 16px; font-size: 10px; margin: 1px; color: #fff; }
+        .marker.W { background: #2196F3; } /* синий - вода */
+        .marker.F { background: #795548; } /* коричневый - фильтр */
+        .marker.T { background: #9C27B0; } /* фиолетовый - тест */
+        .fish-advice { position: fixed; bottom: 15px; right: 15px; cursor: pointer; font-size: 30px; user-select: none; z-index: 100; }
+        .advice-text { color: #6a1b9a; font-weight: bold; margin-left: 10px; display: inline; }
+    </style>
+</head>
+<body>
+    <h1>🐟 АкваКалькулятор</h1>
+    <nav>
+        <a href="#" class="nav-link active" data-page="aqua">Мой аквариум</a>
+        <a href="#" class="nav-link" data-page="service">Запуск и обслуживание</a>
+        <a href="#" class="nav-link" data-page="ref">Справочники</a>
+    </nav>
+
+    <!-- Страница "Мой аквариум" -->
+    <div id="page-aqua" class="page active">
+        <h2>Параметры</h2>
+        <div class="row">
+            <div class="field">
+                <label>Режим ввода</label>
+                <select id="calcMode" onchange="switchMode()">
+                    <option value="dimensions">По размерам</option>
+                    <option value="volume">По литражу</option>
+                    <option value="byfish">Под рыб</option>
+                </select>
+            </div>
+        </div>
+        <div id="mode-dimensions" class="mode-panel">
+            <div class="row">
+                <div class="field"><label>Длина (см)</label><input type="number" id="L" value="60" step="0.1" oninput="autoCalc()"></div>
+                <div class="field"><label>Ширина (см)</label><input type="number" id="W" value="30" step="0.1" oninput="autoCalc()"></div>
+                <div class="field"><label>Высота (см)</label><input type="number" id="H" value="35" step="0.1" oninput="autoCalc()"></div>
+            </div>
+        </div>
+        <div id="mode-volume" class="mode-panel" style="display:none;">
+            <div class="field"><label>Объём (л)</label><input type="number" id="volInput" value="63" step="0.1" oninput="autoCalc()"></div>
+        </div>
+        <div id="mode-byfish" class="mode-panel" style="display:none;">
+            <p>Добавьте желаемых рыб и нажмите «Подобрать аквариум» для расчёта минимального объёма.</p>
+        </div>
+        <div class="row">
+            <div class="field"><label>Грунт (см)</label><input type="number" id="subDepth" value="5" step="0.5" oninput="autoCalc()"></div>
+            <div class="field"><label>Декорации (%)</label><input type="number" id="decorPct" value="10" min="0" max="50" oninput="autoCalc()"></div>
+            <div class="field">
+                <label>Растительность</label>
+                <select id="plantLevel" onchange="autoCalc()">
+                    <option value="none">Нет растений</option>
+                    <option value="low">Мало теневыносливых</option>
+                    <option value="medium" selected>Умеренный травник</option>
+                    <option value="high">Густой сад с CO₂</option>
+                </select>
+            </div>
+            <div class="field"><label>Тип стекла</label><select id="glassType" onchange="autoCalc()"><option value="regular">Обычное</option><option value="tempered">Закалённое</option></select></div>
+            <div class="field"><label>Крышка</label><input type="checkbox" id="hasLid" checked onchange="autoCalc()"></div>
+        </div>
+        <hr>
+        <h3>Рассчитанные параметры</h3>
+        <div class="result-grid" id="aquaResults"></div>
+        <hr>
+        <h3>Рыбы в аквариуме</h3>
+        <table id="stockTable"><thead><tr><th>Вид</th><th>Кол-во</th><th></th></tr></thead><tbody></tbody></table>
+        <div class="row">
+            <div><input type="text" id="fishSearch" placeholder="Поиск рыбы" oninput="filterFishSelect()" style="width:140px;"></div>
+            <select id="fishSelect"></select>
+            <input type="number" id="fishQty" value="1" min="1" style="width:60px;">
+            <button onclick="addFish()">Добавить</button>
+        </div>
+        <p id="compatWarnings"></p>
+        <p id="stockInfo"></p>
+        <div id="byfishBtn" style="display:none; margin-top:10px;">
+            <button onclick="calcMinVolumeForFish()">Подобрать аквариум</button>
+        </div>
+    </div>
+
+    <!-- Страница "Запуск и обслуживание" -->
+    <div id="page-service" class="page">
+        <h2>Запуск аквариума</h2>
+        <div class="row">
+            <div class="field"><label>Дата запуска</label><input type="date" id="startDate" value="2025-06-01" onchange="updateService()"></div>
+            <div class="field"><label>Начальный аммиак (мг/л)</label><input type="number" id="doseNH3" value="2.0" step="0.1" onchange="updateService()"></div>
+        </div>
+        <canvas id="cycleCanvas" width="600" height="280" style="max-width:100%;"></canvas>
+        <p id="cycleInfo"></p>
+        <div id="instructionTimeline"></div>
+        <hr>
+        <h2>График обслуживания (август 2025)</h2>
+        <div id="calendarContainer" class="calendar"></div>
+        <p style="margin-top:10px;">
+            <span class="marker W">W</span> подмена воды &nbsp;
+            <span class="marker F">F</span> чистка фильтра &nbsp;
+            <span class="marker T">T</span> тест воды
+        </p>
+        <h3>Журнал выполненных работ</h3>
+        <div id="logEntries"></div>
+    </div>
+
+    <!-- Страница "Справочники" -->
+    <div id="page-ref" class="page">
+        <h2>Справочники</h2>
+        <div style="display:flex; gap:20px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:300px;">
+                <h3>Виды рыб</h3>
+                <table id="speciesTable"><thead><tr><th>Название</th><th>Мин. объём</th><th>Размер</th><th>Температура</th><th>Агрессивность</th><th></th></tr></thead><tbody></tbody></table>
+                <h4>Добавить / изменить вид</h4>
+                <form onsubmit="event.preventDefault(); addSpecies();">
+                    <input type="text" id="spName" placeholder="Название" required>
+                    <input type="number" id="spVolume" placeholder="Мин. объём (л)" value="10">
+                    <input type="number" id="spSize" placeholder="Размер (см)" value="3">
+                    <input type="number" id="spTmin" placeholder="T min" value="22">
+                    <input type="number" id="spTmax" placeholder="T max" value="26">
+                    <label>Агрессивный <input type="checkbox" id="spAggr"></label>
+                    <select id="spLayer"><option value="середина">середина</option><option value="дно">дно</option><option value="поверхность">поверхность</option></select>
+                    <button type="submit">Сохранить</button>
+                </form>
+            </div>
+            <div style="flex:1; min-width:300px;">
+                <h3>Оборудование</h3>
+                <table id="equipTable"><thead><tr><th>Название</th><th>Тип</th><th>Мин. объём</th><th>Макс. объём</th><th>Хар-ка</th><th></th></tr></thead><tbody></tbody></table>
+                <h4>Добавить устройство</h4>
+                <form onsubmit="event.preventDefault(); addEquipment();">
+                    <input type="text" id="eqName" placeholder="Название" required>
+                    <select id="eqType"><option value="filter">Фильтр</option><option value="heater">Нагреватель</option><option value="light">Свет</option></select>
+                    <input type="number" id="eqMinVol" placeholder="Мин. объём" value="10">
+                    <input type="number" id="eqMaxVol" placeholder="Макс. объём" value="100">
+                    <input type="text" id="eqChar" placeholder="Характеристика" value="300 л/ч">
+                    <button type="submit">Добавить</button>
+                </form>
+            </div>
+        </div>
+        <hr>
+        <h3>Таблица совместимости</h3>
+        <p><small>✓ совместимы &nbsp; ✗ несовместимы &nbsp; ~ условно (возможны нюансы)</small></p>
+        <div id="compatMatrixContainer"></div>
+        <button onclick="showCompatMatrix()">Обновить матрицу</button>
+    </div>
+
+    <!-- Рыбка-советчик -->
+    <div class="fish-advice" onclick="showRandomAdvice()" title="Нажми для совета">🐠</div>
+    <div id="adviceText" class="advice-text"></div>
+
+    <script>
+        // ---------- ДАННЫЕ ----------
+        let fishSpecies = [
+            { id: 1, name: "Неон голубой", minVolume: 10, size: 3, tempMin: 22, tempMax: 26, aggressive: false, layer: "середина" },
+            { id: 2, name: "Гуппи", minVolume: 5, size: 3, tempMin: 22, tempMax: 26, aggressive: false, layer: "середина" },
+            { id: 3, name: "Анциструс", minVolume: 50, size: 12, tempMin: 22, tempMax: 28, aggressive: false, layer: "дно" },
+            { id: 4, name: "Скалярия", minVolume: 80, size: 15, tempMin: 24, tempMax: 28, aggressive: true, layer: "середина" },
+            { id: 5, name: "Золотая рыбка", minVolume: 80, size: 20, tempMin: 18, tempMax: 23, aggressive: false, layer: "середина" }
+        ];
+        // Совместимость: '1' - да, '0' - нет, '~' - условно
+        let compatibility = {
+            "1-2": '1', "1-3": '1', "1-4": '0', "1-5": '1',
+            "2-3": '1', "2-4": '0', "2-5": '1',
+            "3-4": '~', "3-5": '0',
+            "4-5": '0'
+        };
+        function getCompatKey(a,b) { return a < b ? `${a}-${b}` : `${b}-${a}`; }
+        function areCompatible(a,b) {
+            if (a===b) return '-';
+            const k = getCompatKey(a,b);
+            return compatibility[k] || '1'; // по умолчанию совместимы
+        }
+        let stock = [];
+        let equipment = [
+            { id: 1, name: "Фильтр AquaEl 300", type: "filter", minVolume: 30, maxVolume: 100, char: "300 л/ч" },
+            { id: 2, name: "Нагреватель 50Вт", type: "heater", minVolume: 20, maxVolume: 50, char: "50 Вт" },
+            { id: 3, name: "Нагреватель 100Вт", type: "heater", minVolume: 60, maxVolume: 120, char: "100 Вт" }
+        ];
+        let maintenanceLog = [];
+        let currentMode = 'dimensions';
+
+        // Советы
+        const advices = [
+            "Регулярные подмены воды – залог здоровья рыб.",
+            "Не перекармливайте: корм должен съедаться за 2-3 минуты.",
+            "Анциструсы обожают коряги – они помогают пищеварению.",
+            "Скалярии вырастают до 15 см, им нужен высокий аквариум.",
+            "Золотые рыбки – холодноводные, не сажайте их с тропическими видами.",
+            "Тесты на аммиак и нитриты обязательны при запуске.",
+            "Растения не только украшают, но и потребляют нитраты.",
+            "Грунт лучше брать фракцией 2-4 мм для большинства растений.",
+            "Фильтр должен работать круглосуточно, не выключайте его на ночь.",
+            "Запуская аквариум, запаситесь терпением – цикл может идти до месяца."
+        ];
+
+        // ---------- НАВИГАЦИЯ ----------
+        document.querySelectorAll('.nav-link').forEach(link => {
+            link.addEventListener('click', e => {
+                e.preventDefault();
+                document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+                document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+                link.classList.add('active');
+                const pageId = 'page-' + link.dataset.page;
+                document.getElementById(pageId).classList.add('active');
+                if (link.dataset.page === 'service') updateService();
+                if (link.dataset.page === 'ref') { renderAllRef(); showCompatMatrix(); }
+            });
+        });
+
+        // ---------- РЕЖИМЫ ВВОДА ----------
+        function switchMode() {
+            currentMode = document.getElementById('calcMode').value;
+            document.getElementById('mode-dimensions').style.display = currentMode==='dimensions'?'block':'none';
+            document.getElementById('mode-volume').style.display = currentMode==='volume'?'block':'none';
+            document.getElementById('mode-byfish').style.display = currentMode==='byfish'?'block':'none';
+            document.getElementById('byfishBtn').style.display = currentMode==='byfish'?'block':'none';
+            autoCalc();
+        }
+        function getAquariumVolume() {
+            if (currentMode === 'volume') return parseFloat(document.getElementById('volInput').value) || 0;
+            else {
+                const L = parseFloat(document.getElementById('L').value) || 0;
+                const W = parseFloat(document.getElementById('W').value) || 0;
+                const H = parseFloat(document.getElementById('H').value) || 0;
+                return (L * W * H) / 1000;
+            }
+        }
+
+        // ---------- АВТОМАТИЧЕСКИЙ РАСЧЁТ ПАРАМЕТРОВ ----------
+        function autoCalc() {
+            const volume = getAquariumVolume();
+            const L = (currentMode==='dimensions') ? parseFloat(document.getElementById('L').value)||0 : 0;
+            const W = (currentMode==='dimensions') ? parseFloat(document.getElementById('W').value)||0 : 0;
+            const H = (currentMode==='dimensions') ? parseFloat(document.getElementById('H').value)||0 : 0;
+            const subDepth = parseFloat(document.getElementById('subDepth').value)||0;
+            const decorPct = parseFloat(document.getElementById('decorPct').value)||0;
+            const plantLevel = document.getElementById('plantLevel').value;
+            const hasLid = document.getElementById('hasLid').checked;
+            const glassType = document.getElementById('glassType').value;
+
+            const substrateVol = (L && W) ? (L * W * subDepth) / 1000 : 0;
+            const decorVol = volume * decorPct / 100;
+            const usableVol = Math.max(0, volume - substrateVol - decorVol);
+            const bottomArea = (L && W) ? (L * W) / 100 : 0;
+            const waterMass = usableVol;
+            function glassThickness(h, type) {
+                if (type==='tempered') return h<=30?4: h<=40?5: h<=50?6:8;
+                else return h<=30?5: h<=40?6: h<=50?8:10;
+            }
+            const thickness = (L&&W&&H) ? glassThickness(H, glassType) : 0;
+            let glassMass = 0;
+            if (L&&W&&H) {
+                const front = L*H, side = W*H, bottom = L*W;
+                let area = bottom + 2*front + 2*side;
+                if (hasLid) area += bottom;
+                glassMass = area * thickness * 0.1 * 2.5 / 1000;
+            }
+            // Освещённость в зависимости от растений
+            let lumenPerL;
+            switch(plantLevel) {
+                case 'none': lumenPerL = 15; break;
+                case 'low': lumenPerL = 25; break;
+                case 'medium': lumenPerL = 35; break;
+                case 'high': lumenPerL = 50; break;
+                default: lumenPerL = 30;
+            }
+            const totalLumens = Math.round(usableVol * lumenPerL);
+            const filterLow = Math.round(usableVol * 4);
+            const filterHigh = Math.round(usableVol * 6);
+            const heaterWatt = Math.round(usableVol * 1.2);
+
+            const results = document.getElementById('aquaResults');
+            results.innerHTML = `
+                <div class="result-item"><strong>Полный объём:</strong> ${volume.toFixed(1)} л</div>
+                <div class="result-item"><strong>Полезный объём:</strong> ${usableVol.toFixed(1)} л</div>
+                <div class="result-item"><strong>Масса воды:</strong> ${waterMass.toFixed(1)} кг</div>
+                <div class="result-item"><strong>Площадь дна:</strong> ${bottomArea.toFixed(1)} дм²</div>
+                <div class="result-item"><strong>Толщина стекла:</strong> ${thickness || '—'} мм</div>
+                <div class="result-item"><strong>Масса стекла:</strong> ${glassMass.toFixed(1)} кг</div>
+                <div class="result-item"><strong>Объём грунта:</strong> ${substrateVol.toFixed(1)} л</div>
+                <div class="result-item"><strong>Освещённость:</strong> ${totalLumens} лм (${lumenPerL} лм/л)</div>
+                <div class="result-item"><strong>Фильтр:</strong> ${filterLow}–${filterHigh} л/ч</div>
+                <div class="result-item"><strong>Нагреватель:</strong> ~${heaterWatt} Вт</div>
+            `;
+        }
+
+        // ---------- РЫБЫ И СОВМЕСТИМОСТЬ ----------
+        let allFishOptions = []; // для поиска
+        function populateFishSelect(filter = '') {
+            allFishOptions = fishSpecies.filter(s => s.name.toLowerCase().includes(filter.toLowerCase()));
+            const select = document.getElementById('fishSelect');
+            select.innerHTML = allFishOptions.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+        }
+        function filterFishSelect() {
+            const query = document.getElementById('fishSearch').value;
+            populateFishSelect(query);
+        }
+        function renderStockTable() {
+            const tbody = document.querySelector('#stockTable tbody');
+            tbody.innerHTML = stock.map(item => {
+                const sp = fishSpecies.find(s => s.id === item.speciesId);
+                return `<tr><td>${sp?sp.name:'?'}</td><td>${item.quantity}</td><td><button onclick="removeFish(${item.speciesId})">Удалить</button></td></tr>`;
+            }).join('');
+            const totalCm = stock.reduce((sum, item) => sum + (fishSpecies.find(s=>s.id===item.speciesId)?.size||0)*item.quantity, 0);
+            document.getElementById('stockInfo').textContent = `Суммарная длина рыб: ${totalCm} см. Рекомендуемый объём: ${totalCm} л.`;
+            updateCompatibilityWarnings();
+        }
+        function updateCompatibilityWarnings() {
+            const conflicts = [];
+            for (let i=0; i<stock.length; i++) {
+                for (let j=i+1; j<stock.length; j++) {
+                    const idA = stock[i].speciesId, idB = stock[j].speciesId;
+                    const comp = areCompatible(idA, idB);
+                    if (comp === '0') {
+                        const nameA = fishSpecies.find(s=>s.id===idA)?.name;
+                        const nameB = fishSpecies.find(s=>s.id===idB)?.name;
+                        conflicts.push(`${nameA} и ${nameB} несовместимы`);
+                    } else if (comp === '~') {
+                        const nameA = fishSpecies.find(s=>s.id===idA)?.name;
+                        const nameB = fishSpecies.find(s=>s.id===idB)?.name;
+                        conflicts.push(`${nameA} и ${nameB} могут сосуществовать только при определённых условиях`);
+                    }
+                }
+            }
+            const warnDiv = document.getElementById('compatWarnings');
+            if (conflicts.length > 0) {
+                warnDiv.innerHTML = '<span class="warning">⚠️ ' + conflicts.join('<br>') + '</span>';
+            } else {
+                warnDiv.innerHTML = '';
+            }
+        }
+        function addFish() {
+            const select = document.getElementById('fishSelect');
+            if (select.options.length === 0) return;
+            const speciesId = parseInt(select.value);
+            const qty = parseInt(document.getElementById('fishQty').value) || 1;
+            const sp = fishSpecies.find(s => s.id === speciesId);
+            if (!sp) return;
+            const existing = stock.find(item => item.speciesId === speciesId);
+            if (existing) existing.quantity += qty;
+            else stock.push({ speciesId, quantity: qty });
+            renderStockTable();
+            autoCalc();
+        }
+        function removeFish(speciesId) {
+            stock = stock.filter(item => item.speciesId !== speciesId);
+            renderStockTable();
+            autoCalc();
+        }
+        function calcMinVolumeForFish() {
+            if (stock.length === 0) return;
+            const maxMinVol = Math.max(...stock.map(item => {
+                const sp = fishSpecies.find(s => s.id === item.speciesId);
+                return sp ? sp.minVolume : 0;
+            }));
+            const recVol = Math.ceil(maxMinVol * 1.2);
+            document.getElementById('calcMode').value = 'volume';
+            switchMode();
+            document.getElementById('volInput').value = recVol;
+            autoCalc();
+        }
+
+        // ---------- АЗОТНЫЙ ЦИКЛ И ИНСТРУКЦИЯ ----------
+        function drawCycle() {
+            const canvas = document.getElementById('cycleCanvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const dose = parseFloat(document.getElementById('doseNH3').value) || 2;
+            const days = 30;
+            const nh3 = [], no2 = [], no3 = [];
+            for (let d=0; d<=days; d++) {
+                let n3 = dose * Math.exp(-0.15*d);
+                let n2 = (d<7) ? 0.2*dose*(d/7) : dose*0.7*Math.exp(-0.15*(d-7));
+                let nN = dose * (1 - Math.exp(-0.1*d));
+                nh3.push(n3); no2.push(Math.max(0,n2)); no3.push(Math.max(0,nN));
+            }
+            const maxVal = dose*1.2;
+            const sx = canvas.width/days, sy = canvas.height/maxVal;
+            function line(pts, color) {
+                ctx.beginPath();
+                ctx.strokeStyle=color; ctx.lineWidth=2;
+                pts.forEach((v,i)=>{ const x=i*sx, y=canvas.height-v*sy; i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+                ctx.stroke();
+            }
+            line(nh3,'red'); line(no2,'orange'); line(no3,'green');
+            ctx.font='14px Arial'; ctx.fillStyle='red'; ctx.fillText('NH₃',20,20);
+            ctx.fillStyle='orange'; ctx.fillText('NO₂',20,40);
+            ctx.fillStyle='green'; ctx.fillText('NO₃',20,60);
+            let matureDay = days;
+            for (let i=0; i<no2.length; i++) if (no2[i]<0.1) { matureDay=i; break; }
+            document.getElementById('cycleInfo').textContent = `Примерный срок созревания: ${matureDay} дней.`;
+            generateInstructionTimeline(matureDay);
+        }
+        function generateInstructionTimeline(matureDay) {
+            const start = document.getElementById('startDate').value;
+            if (!start) return;
+            const s = new Date(start+'T00:00:00');
+            const fmt = (add) => { const d=new Date(s.getTime()+add*86400000); return d.toISOString().slice(0,10); };
+            const dose = document.getElementById('doseNH3').value;
+            document.getElementById('instructionTimeline').innerHTML = `
+                <div class="timeline">
+                    <div class="tl-item"><span class="tl-date">День 1 (${fmt(0)})</span> Наполните аквариум водой, добавьте кондиционер для удаления хлора. Включите фильтр и нагреватель, установите термометр. Внесите аммиак до ${dose} мг/л. Свет не включайте.</div>
+                    <div class="tl-item"><span class="tl-date">День 2–3</span> Проверьте температуру (24–26°C). Измерьте аммиак тестом — он должен оставаться на уровне ${dose} мг/л.</div>
+                    <div class="tl-item"><span class="tl-date">День 4–7</span> Начинайте тесты на нитриты. Как только аммиак начнёт падать, а нитриты расти — процесс идёт. Не подменивайте воду без крайней нужды.</div>
+                    <div class="tl-item"><span class="tl-date">День 10–14</span> Пик нитритов. Делайте тесты каждый день. Если нитриты зашкаливают (>5 мг/л), подмените 10-15% воды.</div>
+                    <div class="tl-item"><span class="tl-date">День ~${matureDay} (${fmt(matureDay)})</span> Ожидаемый конец цикла: аммиак и нитриты — 0. Подмените 30% воды и можно запускать первых рыб (не более 30% от планового населения).</div>
+                    <div class="tl-item"><span class="tl-date">День ${matureDay+7} (${fmt(matureDay+7)})</span> При стабильных параметрах добавьте вторую партию рыб. Продолжайте тесты.</div>
+                    <div class="tl-item"><span class="tl-date">День ${matureDay+14} (${fmt(matureDay+14)})</span> Аквариум стабилизирован. Переходите к регулярному графику обслуживания.</div>
+                </div>`;
+        }
+        function updateService() {
+            drawCycle();
+            renderCalendar();
+            renderLog();
+        }
+
+        // ---------- КАЛЕНДАРЬ ОБСЛУЖИВАНИЯ (август 2025) ----------
+        function renderCalendar() {
+            const container = document.getElementById('calendarContainer');
+            const year = 2025, month = 7; // август (0-индекс)
+            const daysInMonth = new Date(year, month+1, 0).getDate();
+            const firstDay = new Date(year, month, 1).getDay(); // 0 вс
+            // События по дням (генерируем от даты запуска, но для примера фиксированные)
+            const events = {};
+            // Подмена воды каждое воскресенье
+            for (let d=1; d<=daysInMonth; d++) {
+                const date = new Date(year, month, d);
+                const dayOfWeek = date.getDay();
+                if (dayOfWeek === 0) { // вс
+                    events[d] = ['W'];
+                }
+                if (d === 5 || d === 20) { // чистка фильтра условно
+                    if (!events[d]) events[d] = [];
+                    events[d].push('F');
+                }
+                if (d === 10 || d === 25) { // тест
+                    if (!events[d]) events[d] = [];
+                    events[d].push('T');
+                }
+            }
+            // Генерация сетки
+            let html = '<div class="cal-day" style="border:none;"></div>'.repeat(7); // заголовки дней недели (пустые, можно добавить Пн-Вс)
+            const dayNames = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+            for (let i=0; i<7; i++) html += `<div class="cal-day" style="font-weight:bold; border:none;">${dayNames[i]}</div>`;
+            // Пустые ячейки до первого дня
+            for (let i=0; i<firstDay; i++) html += '<div class="cal-day"></div>';
+            for (let d=1; d<=daysInMonth; d++) {
+                const ev = events[d] || [];
+                let markers = '';
+                ev.forEach(e => markers += `<span class="marker ${e}">${e}</span>`);
+                html += `<div class="cal-day"><span class="day-num">${d}</span><div class="markers">${markers}</div></div>`;
+            }
+            container.innerHTML = html;
+        }
+
+        // ---------- ЖУРНАЛ ОБСЛУЖИВАНИЯ ----------
+        function renderLog() {
+            document.getElementById('logEntries').innerHTML = maintenanceLog.map(e => `<div>${e.date} — ${e.task}</div>`).join('');
+        }
+        // Для простоты добавим функцию отметки (можно доработать через клик по ячейке)
+        function addLogEntry(date, task) {
+            if (!maintenanceLog.some(e => e.date===date && e.task===task)) {
+                maintenanceLog.push({date, task});
+                renderLog();
+            }
+        }
+        window.addLogEntry = addLogEntry; // для вызова из onclick (не используется сейчас)
+
+        // ---------- СПРАВОЧНИКИ ----------
+        function renderSpeciesTable() {
+            const tbody = document.querySelector('#speciesTable tbody');
+            tbody.innerHTML = fishSpecies.map(s=>`<tr>
+                <td>${s.name}</td><td>${s.minVolume}</td><td>${s.size}</td><td>${s.tempMin}-${s.tempMax}</td><td>${s.aggressive?'Да':'Нет'}</td>
+                <td><button onclick="deleteSpecies(${s.id})">Удалить</button></td>
+            </tr>`).join('');
+        }
+        function addSpecies() {
+            const name = document.getElementById('spName').value.trim();
+            if (!name) return;
+            const newId = Math.max(...fishSpecies.map(s=>s.id),0)+1;
+            const species = {
+                id: newId, name,
+                minVolume: parseInt(document.getElementById('spVolume').value)||10,
+                size: parseInt(document.getElementById('spSize').value)||3,
+                tempMin: parseInt(document.getElementById('spTmin').value)||22,
+                tempMax: parseInt(document.getElementById('spTmax').value)||26,
+                aggressive: document.getElementById('spAggr').checked,
+                layer: document.getElementById('spLayer').value
+            };
+            fishSpecies.push(species);
+            fishSpecies.forEach(s=>{ if(s.id!==newId) compatibility[getCompatKey(newId,s.id)]='1'; });
+            renderAllRef();
+            populateFishSelect();
+            document.getElementById('spName').value='';
+        }
+        function deleteSpecies(id) {
+            if (!confirm('Удалить вид?')) return;
+            for (let k in compatibility) if (k.startsWith(id+'-')||k.endsWith('-'+id)) delete compatibility[k];
+            fishSpecies = fishSpecies.filter(s=>s.id!==id);
+            stock = stock.filter(item=>item.speciesId!==id);
+            renderAllRef();
+            renderStockTable();
+            populateFishSelect();
+        }
+        function renderEquipTable() {
+            const tbody = document.querySelector('#equipTable tbody');
+            tbody.innerHTML = equipment.map(e=>`<tr>
+                <td>${e.name}</td><td>${e.type}</td><td>${e.minVolume}</td><td>${e.maxVolume}</td><td>${e.char}</td>
+                <td><button onclick="deleteEquip(${e.id})">Удалить</button></td>
+            </tr>`).join('');
+        }
+        function addEquipment() {
+            const name = document.getElementById('eqName').value.trim();
+            if (!name) return;
+            equipment.push({
+                id: Math.max(...equipment.map(e=>e.id),0)+1,
+                name,
+                type: document.getElementById('eqType').value,
+                minVolume: parseInt(document.getElementById('eqMinVol').value)||10,
+                maxVolume: parseInt(document.getElementById('eqMaxVol').value)||100,
+                char: document.getElementById('eqChar').value
+            });
+            renderEquipTable();
+            document.getElementById('eqName').value='';
+        }
+        function deleteEquip(id) { equipment = equipment.filter(e=>e.id!==id); renderEquipTable(); }
+        function renderAllRef() { renderSpeciesTable(); renderEquipTable(); }
+
+        // ---------- МАТРИЦА СОВМЕСТИМОСТИ С ПОДСВЕТКОЙ ----------
+        function showCompatMatrix() {
+            const container = document.getElementById('compatMatrixContainer');
+            let html = '<table class="compat-matrix"><tr><th></th>';
+            fishSpecies.forEach(s => html += `<th class="compat-header" onclick="highlightSpecies(${s.id})">${s.name}</th>`);
+            html += '</tr>';
+            fishSpecies.forEach(s1 => {
+                html += `<tr><td class="compat-rowname" onclick="highlightSpecies(${s1.id})" style="cursor:pointer; font-weight:bold;">${s1.name}</td>`;
+                fishSpecies.forEach(s2 => {
+                    const comp = areCompatible(s1.id, s2.id);
+                    let cls = '', symbol = '';
+                    if (s1.id === s2.id) { symbol = '-'; }
+                    else if (comp === '1') { symbol = '✓'; cls = 'compat-yes'; }
+                    else if (comp === '0') { symbol = '✗'; cls = 'compat-no'; }
+                    else if (comp === '~') { symbol = '~'; cls = 'compat-maybe'; }
+                    html += `<td class="compat-cell ${cls}" data-id1="${s1.id}" data-id2="${s2.id}" onclick="cycleCompat(${s1.id},${s2.id})">${symbol}</td>`;
+                });
+                html += '</tr>';
+            });
+            html += '</table>';
+            container.innerHTML = html;
+        }
+        function cycleCompat(id1, id2) {
+            if (id1 === id2) return;
+            const key = getCompatKey(id1, id2);
+            const current = compatibility[key] || '1';
+            let next;
+            if (current === '1') next = '~';
+            else if (current === '~') next = '0';
+            else next = '1';
+            compatibility[key] = next;
+            showCompatMatrix();
+            updateCompatibilityWarnings();
+        }
+        function highlightSpecies(speciesId) {
+            // Убрать старую подсветку
+            document.querySelectorAll('.compat-cell').forEach(cell => cell.classList.remove('highlight'));
+            document.querySelectorAll('.compat-header, .compat-rowname').forEach(el => el.style.background = '');
+            // Подсветить строку и столбец
+            document.querySelectorAll(`.compat-cell[data-id1="${speciesId}"]`).forEach(cell => cell.classList.add('highlight'));
+            document.querySelectorAll(`.compat-cell[data-id2="${speciesId}"]`).forEach(cell => cell.classList.add('highlight'));
+            // Подсветить заголовки
+            const headers = document.querySelectorAll('.compat-header');
+            headers.forEach(th => { if (parseInt(th.getAttribute('onclick')?.match(/\d+/)?.[0]) === speciesId) th.style.background = '#cce5ff'; });
+            const rowNames = document.querySelectorAll('.compat-rowname');
+            rowNames.forEach(td => { if (parseInt(td.getAttribute('onclick')?.match(/\d+/)?.[0]) === speciesId) td.style.background = '#cce5ff'; });
+        }
+
+        // ---------- РЫБКА-СОВЕТЧИК ----------
+        function showRandomAdvice() {
+            const advice = advices[Math.floor(Math.random() * advices.length)];
+            document.getElementById('adviceText').textContent = advice;
+        }
+
+        // ---------- ИНИЦИАЛИЗАЦИЯ ----------
+        function init() {
+            switchMode();
+            populateFishSelect();
+            renderStockTable();
+            updateService(); // нарисует цикл, календарь
+            renderAllRef();
+            showCompatMatrix();
+            showRandomAdvice();
+        }
+        window.onload = init;
+    </script>
+</body>
+</html>
